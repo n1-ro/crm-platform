@@ -1,36 +1,59 @@
 import { describe, expect, it } from 'vitest';
-import { canTransition, pipelineValue, winRate, STAGES } from './pipeline';
+import { Deal, canTransition, pipelineValue, winRate, STAGES, TRANSITIONS } from './pipeline';
 
-describe('pipeline', () => {
-  it('allows valid forward transitions only', () => {
-    expect(canTransition('lead', 'qualified')).toBe(true);
-    expect(canTransition('lead', 'won')).toBe(false);
-    expect(canTransition('proposal', 'won')).toBe(true);
-    expect(canTransition('proposal', 'lead')).toBe(false);
-  });
+const deal = (stage: Deal['stage'], value = 100): Deal => ({
+  id: Math.random().toString(36).slice(2),
+  contactId: 'c',
+  title: 'Deal',
+  value,
+  stage,
+  createdAt: '',
+});
 
-  it('computes pipeline value excluding lost deals', () => {
-    const deals = [
-      { id: '1', contactId: 'a', title: 'A', value: 1000, stage: 'lead', createdAt: '' },
-      { id: '2', contactId: 'b', title: 'B', value: 500, stage: 'lost', createdAt: '' },
-    ] as const;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(pipelineValue(deals as any)).toBe(1000);
-  });
-
-  it('computes win rate from closed deals', () => {
-    const deals = [
-      { id: '1', contactId: 'a', title: 'A', value: 1, stage: 'won', createdAt: '' },
-      { id: '2', contactId: 'b', title: 'B', value: 1, stage: 'lost', createdAt: '' },
-      { id: '3', contactId: 'c', title: 'C', value: 1, stage: 'lead', createdAt: '' },
-    ] as const;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(winRate(deals as any)).toBe(50);
-  });
-
+describe('pipeline stages', () => {
   it('defines five ordered stages', () => {
     expect(STAGES).toHaveLength(5);
-    expect(STAGES[0].id).toBe('lead');
-    expect(STAGES[STAGES.length - 1].id).toBe('lost');
+    expect(STAGES.map((s) => s.id)).toEqual(['lead', 'qualified', 'proposal', 'won', 'lost']);
+  });
+
+  it('marks won/lost as closed', () => {
+    const won = STAGES.find((s) => s.id === 'won')!;
+    const lost = STAGES.find((s) => s.id === 'lost')!;
+    expect(won.isClosed).toBe(true);
+    expect(won.isWon).toBe(true);
+    expect(lost.isClosed).toBe(true);
+  });
+});
+
+describe('transitions', () => {
+  it('allows lead -> qualified and lead -> lost', () => {
+    expect(canTransition('lead', 'qualified')).toBe(true);
+    expect(canTransition('lead', 'lost')).toBe(true);
+  });
+
+  it('rejects backwards transitions', () => {
+    expect(canTransition('proposal', 'lead')).toBe(false);
+    expect(canTransition('won', 'proposal')).toBe(false);
+  });
+
+  it('rejects transitions from closed stages', () => {
+    expect(TRANSITIONS.won).toEqual([]);
+    expect(TRANSITIONS.lost).toEqual([]);
+  });
+});
+
+describe('metrics', () => {
+  it('computes pipeline value excluding lost', () => {
+    const deals = [deal('lead', 1000), deal('qualified', 500), deal('lost', 300), deal('won', 200)];
+    expect(pipelineValue(deals)).toBe(1700);
+  });
+
+  it('computes win rate over closed deals only', () => {
+    const deals = [deal('won'), deal('won'), deal('lost'), deal('proposal')];
+    expect(winRate(deals)).toBeCloseTo(66.67, 1);
+  });
+
+  it('returns 0 win rate with no closed deals', () => {
+    expect(winRate([deal('lead'), deal('qualified')])).toBe(0);
   });
 });
